@@ -19,5 +19,5 @@ gfi_cty <- function(logf, max_try = 10){
 ec2env <- function(keycache, usr){
   Sys.setenv("AWS_ACCESS_KEY_ID" = keycache$Access_key_ID[keycache$service==usr],
              "AWS_SECRET_ACCESS_KEY" = keycache$Secret_access_key[keycache$service==usr])
-  if(is.na(Sys.getenv()["AWS_DEFAULT_REGION"]))Sys.setenv("AWS_DEFAULT_REGION" = gsub('.{1}$', '', metadata$availability_zone()))
+  if(is.na(Sys.getenv()["AWS_DEFAULT_REGION"]))Sys.setenv("AWS_DEFAULT_REGION" = gsub('.{1}$', '', aws.ec2metadata::metadata$availability_zone()))
 }
