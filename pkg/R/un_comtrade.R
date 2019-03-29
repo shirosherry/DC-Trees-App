@@ -64,7 +64,7 @@ unct_hk <- function(unct, hk, yr, mx, logf, max_try = 10, out_bucket){
   unct <- subset(unct, select = cols_out)
   cat('11\n')
   junk <- subset(unct,unct$v_M<0)
-  unct[unct$v_M<0,"v_M"] <- tmp[unct$v_M<0,"v_M"]  ; # undo the adjustment for negative values
+  unct[unct$v_M<0 & !is.na(unct$v_M),"v_M"] <- tmp[unct$v_M<0 & !is.na(unct$v_M),"v_M"]  ; # undo the adjustment for negative values
   cat('12\n')
   unct[getElement(unct, ij[2])==752,"v_M"] <- tmp[getElement(unct, ij[2])==752,"v_M"]  ; # undo the adjustment for Sweden  (OECD[2016], p. 19)
   cat('13\n')
