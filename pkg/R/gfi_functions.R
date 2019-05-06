@@ -1,8 +1,9 @@
 nv_cols <- function(nm, cl, obj, io = TRUE){
   switch(obj,
-         bridge = {
-           cols <- rep('NULL',21)
-           names(cols) <- c('un_code','imf_code','imf_nm','un_nm','d_gfi','d_dev','d_ssa','d_asia','d_deur','d_mena','d_whem','d_adv','un_nm_en_full','un_nm_en_abbr','un_note','iso2','iso3','un_start','un_end','wb_code','wb_nm')
+         bridge = {# "whem","mena","ssa","deur","asia" in imf_reg
+           cols <- c(rep('integer',7), rep('character',9))
+           names(cols) <- c('un_code','un_start','un_end','wb_code','imf_code','d_gfi','d_dev',
+                            'imf_reg','imf_nm','un_nm','un_nm_en_full','un_nm_en_abbr','un_note','iso2','iso3','wb_nm')
          },
          geo = {
            cols <- c(rep("integer",4),"numeric",rep("integer",4))
@@ -24,7 +25,7 @@ nv_cols <- function(nm, cl, obj, io = TRUE){
 
 in_bridge <- function(nm, cl, logf, max_try = 10, io = TRUE){
   cols <- nv_cols(nm, cl, 'bridge', io)
-  scripting::ecycle(bridge <- aws.s3::s3read_using(FUN = function(x)read.csv(x, colClasses=cols, header=T, fileEncoding = 'UTF8'),
+  batchscr::ecycle(bridge <- aws.s3::s3read_using(FUN = function(x)read.csv(x, colClasses=cols, header=T, fileEncoding = 'UTF8'),
                                                    object = 'bridge.csv', bucket = 'gfi-supplemental'),
                     {if(!missing(logf))logf(paste('0000', '!', 'loading bridge.csv failed', sep = '\t')); return(NULL)}, max_try)
   return(bridge)
@@ -32,7 +33,7 @@ in_bridge <- function(nm, cl, logf, max_try = 10, io = TRUE){
 
 in_geo <- function(nm, cl, logf, max_try = 10, io = TRUE){
   cols <- nv_cols(nm, cl, 'geo', io)
-  scripting::ecycle(geo <- aws.s3::s3read_using(FUN = function(x)read.csv(x, colClasses=cols, header=T, na.strings=''),
+  batchscr::ecycle(geo <- aws.s3::s3read_using(FUN = function(x)read.csv(x, colClasses=cols, header=T, na.strings=''),
                                                 object = 'CEPII_GeoDist.csv', bucket = 'gfi-supplemental'),
                     {if(!missing(logf))logf(paste('0000', '!', 'loading CEPII_GeoDist.csv failed', sep = '\t')); return(NULL)}, max_try)
   return(geo)
@@ -41,9 +42,9 @@ in_geo <- function(nm, cl, logf, max_try = 10, io = TRUE){
 in_eia <- function(nm, cl, logf, max_try = 10, io = TRUE){
   cols <- nv_cols(nm, cl, 'eia', io)
   tmp <- tempfile()
-  scripting::ecycle(aws.s3::save_object(object = 'EIA.csv.bz2', bucket = 'gfi-supplemental', file = tmp, overwrite = TRUE),
+  batchscr::ecycle(aws.s3::save_object(object = 'EIA.csv.bz2', bucket = 'gfi-supplemental', file = tmp, overwrite = TRUE),
                     {if(!missing(logf))logf(paste('0000', '!', 'retrieving EIA file failed', sep = '\t')); return(NULL)}, max_try)
-  scripting::ecycle(eia <- read.csv(bzfile(tmp), header=T, colClasses=cols, na.strings="", stringsAsFactors = F),
+  batchscr::ecycle(eia <- read.csv(bzfile(tmp), header=T, colClasses=cols, na.strings="", stringsAsFactors = F),
                     {if(!missing(logf))logf(paste('0000', '!', 'loading file failed', sep = '\t')); return(NULL)},
                     max_try, cond = is.data.frame(eia) && nrow(eia)>10)
   return(eia)
@@ -52,19 +53,24 @@ in_eia <- function(nm, cl, logf, max_try = 10, io = TRUE){
 in_hkrx <- function(yr, nm, cl, logf, max_try = 10, io = TRUE){
   cols <- nv_cols(nm, cl, 'hkrx', io)
   tmp <- tempfile()
-  scripting::ecycle(aws.s3::save_object(object = paste('HK', yr, 'rx.csv.bz2', sep = '_'), bucket = 'gfi-supplemental', file = tmp, overwrite = TRUE),
+  batchscr::ecycle(aws.s3::save_object(object = paste('HK', yr, 'rx.csv.bz2', sep = '_'), bucket = 'gfi-supplemental', file = tmp, overwrite = TRUE),
                     {if(!missing(logf))logf(paste(yr, '!', 'retrieving hkrx file failed', sep = '\t')); return(NULL)}, max_try)
-  scripting::ecycle(hk <- read.csv(bzfile(tmp), header=T, colClasses=cols, na.strings="", stringsAsFactors = F),
+  batchscr::ecycle(hk <- read.csv(bzfile(tmp), header=T, colClasses=cols, na.strings="", stringsAsFactors = F),
                     {if(!missing(logf))logf(paste(yr, '!', 'loading hkrx file failed', sep = '\t')); return(NULL)},
                     max_try, cond = is.data.frame(hk) && nrow(hk)>10)
   return(hk)
 }
 
-gfi_cty <- function(logf, max_try = 10){
-  bridge <- in_bridge(c('un_code','d_gfi'), rep('integer',2), logf, max_try)
+# opt can be missing, dev, adv, or a region abbrivation
+gfi_cty <- function(opt, logf, max_try = 10){
+  cols <- if(!missing(opt))switch(opt, dev = 'd_dev', adv = c('d_gfi', 'd_dev'), c('d_gfi', 'imf_reg'))else 'd_gfi'
+  bridge <- in_bridge(c(cols, 'un_code'), logf, max_try)
   if(is.null(bridge))return(NULL)
   bridge <- unique(bridge)
-  cty <- bridge$un_code[bridge$d_gfi==1]
+  cty <- if(length(cols)==1)subset(bridge, bridge[, cols]==1, 'un_code', drop = T)
+          else switch(class(bridge[, setdiff(cols, 'd_gfi')]),
+                      integer = subset(bridge, abs(bridge[, cols[1]]-bridge[, cols[2]])==1, 'un_code', drop = T),
+                      character = bridge$un_code[bridge$d_gfi==1 & bridge$imf_reg==opt])
   if(!missing(logf))logf(paste('0000', ':', 'decided cty', sep = '\t'))
   return(cty)
 }
